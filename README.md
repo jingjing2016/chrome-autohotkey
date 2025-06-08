@@ -335,3 +335,96 @@ ExitApp
     *   如果 Native Messaging 连接失败，`background.js` 的控制台通常会显示 `Disconnected due to an error` 的详细信息。
 
 完成以上所有步骤后，刷新网页，选择文本，你应该就能看到弹出的按钮了。点击它，你的 `your-main-script.ahk` 就会被执行！
+
+---
+
+## Setup and Installation
+
+After creating the files as described above, you need to perform a few manual setup steps to get the extension working with your local AutoHotkey installation.
+
+**Important Notes Before Starting:**
+
+*   The files `your-main-script.ahk`, `native-host-runner.ahk`, and `ahk_host_manifest.json` have been created in the root of this repository. You will likely need to move them to a permanent location on your computer (e.g., a dedicated scripts folder).
+*   **AHK Version for `native-host-runner.ahk`**: The provided `native-host-runner.ahk` script is written with AHK v2 syntax in mind for easier handling of standard input/output. If you are using AHK v1, you might need to adjust this script.
+*   **Encoding for `native-host-runner.ahk`**: This script file **must** be saved with **UTF-8 with BOM** encoding. Chrome may fail to start it otherwise. Open it in a text editor like Notepad++, VS Code, or Sublime Text and ensure you save it with this specific encoding.
+
+### 1. Customize File Paths
+
+You need to edit two files to point to the correct locations of your scripts and AutoHotkey executable:
+
+*   **`native-host-runner.ahk`**:
+    *   Open `native-host-runner.ahk`.
+    *   Locate the line: `Run, "C:\path\to\AutoHotkey\AutoHotkey.exe" "C:\path\to\your-main-script.ahk" "`"" . selectedText . "`""`
+    *   Change `"C:\path\to\AutoHotkey\AutoHotkey.exe"` to the actual full path of your `AutoHotkey.exe` (e.g., `"C:\Program Files\AutoHotkey\AutoHotkey.exe"`).
+    *   Change `"C:\path\to\your-main-script.ahk"` to the actual full path where you've saved `your-main-script.ahk`.
+    *   Remember to use double backslashes `\\` for paths in AHK strings.
+
+*   **`ahk_host_manifest.json`**:
+    *   Open `ahk_host_manifest.json`.
+    *   Locate the `"path"` key: `"path": "C:\path\to\your\native-host-runner.ahk",`
+    *   Change `"C:\path\to\your\native-host-runner.ahk"` to the actual full path where you've saved `native-host-runner.ahk`.
+    *   Remember to use double backslashes `\\` for paths in JSON strings.
+
+### 2. Load the Extension in Chrome and Get its ID
+
+1.  Open Chrome and navigate to `chrome://extensions`.
+2.  Enable "Developer mode" using the toggle switch (usually in the top right corner).
+3.  Click the "Load unpacked" button.
+4.  Navigate to and select the `my-ahk-extension` folder (the one containing `manifest.json`).
+5.  Once loaded, the "AHK Text Selector" extension will appear in your list of extensions. Find its **ID** (it will be a long string of characters, e.g., `abcdefghijklmnopabcdefghijklmnop`). Copy this ID.
+
+### 3. Update `ahk_host_manifest.json` with Extension ID
+
+1.  Open `ahk_host_manifest.json` again.
+2.  Locate the `"allowed_origins"` key:
+    ```json
+    "allowed_origins": [
+        "chrome-extension://YOUR_EXTENSION_ID/"
+    ]
+    ```
+3.  Replace `YOUR_EXTENSION_ID` with the actual ID you copied from `chrome://extensions`. For example:
+    ```json
+    "allowed_origins": [
+        "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
+    ]
+    ```
+4.  Save the `ahk_host_manifest.json` file.
+
+### 4. Register the Native Messaging Host with Windows
+
+This step tells Chrome where to find your `ahk_host_manifest.json` file.
+
+1.  Open a plain text editor (like Notepad).
+2.  Paste the following content into the editor:
+
+    ```reg
+    Windows Registry Editor Version 5.00
+
+    [HKEY_CURRENT_USER\Software\Google\Chrome\NativeMessagingHosts\com.my_company.my_app]
+    @="C:\path\to\your\ahk_host_manifest.json"
+    ```
+
+3.  **Crucially, edit the path**:
+    *   Change `C:\path\to\your\ahk_host_manifest.json` to the **actual full path** where you saved your `ahk_host_manifest.json` file.
+    *   **Important**: In `.reg` files, you must use **double backslashes (`\\`)** for file paths. For example: `C:\Users\YourName\Documents\AHK_Chrome_Host\ahk_host_manifest.json`.
+
+4.  Save the file with a `.reg` extension (e.g., `install_ahk_host.reg`). Make sure "Save as type" is set to "All Files" in Notepad to avoid saving it as `install_ahk_host.reg.txt`.
+5.  Double-click the saved `.reg` file.
+6.  You'll be asked for permission to add information to the registry. Click "Yes" and then "OK".
+
+### 5. Test
+
+1.  If the extension was already loaded in Chrome, go to `chrome://extensions` and reload it by clicking the refresh icon for the "AHK Text Selector" extension.
+2.  Open any webpage, select some text. The "▶️ Run AHK" button should appear.
+3.  Click the button. Your `your-main-script.ahk` should execute (e.g., display a message box with the selected text).
+
+### Troubleshooting Tips
+
+*   **Check all paths meticulously**: Typos in file paths are the most common issue.
+*   **Double-check extension ID**: Ensure the ID in `ahk_host_manifest.json` matches exactly.
+*   **Encoding**: `native-host-runner.ahk` *must* be UTF-8 with BOM.
+*   **Chrome Developer Tools**:
+    *   For `background.js` errors: On `chrome://extensions`, click the "service worker" link for your extension to open its DevTools console.
+    *   For `content.js` errors: On any webpage where the extension is active, press F12 to open DevTools and check the console.
+*   **Native Host Errors**: If `background.js` reports `Disconnected due to an error:`, it often means Chrome couldn't start or communicate with `native-host-runner.ahk`. This could be due to incorrect paths in the registry or `ahk_host_manifest.json`, or issues with the AHK script itself (like encoding).
+*   **Restart Chrome**: Sometimes, a full restart of Chrome can help after making registry changes or updating files.

@@ -1,0 +1,9 @@
+{
+    "name": "com.my_company.my_app",
+    "description": "AHK Host for Chrome Extension",
+    "path": "C:\path\to\your\native-host-runner.ahk",
+    "type": "stdio",
+    "allowed_origins": [
+        "chrome-extension://YOUR_EXTENSION_ID/"
+    ]
+}
