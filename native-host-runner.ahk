@@ -9,7 +9,6 @@ stdout := FileOpen("*", "w `n") ; AHK v2 syntax
 ; 第一个 4 字节是消息长度 (little-endian integer).
 Loop {
     try {
-        ; 1. 读取消息长度 (4 bytes)
         length := 0
         length |= stdin.ReadUChar()
         length |= stdin.ReadUChar() << 8
@@ -20,25 +19,72 @@ Loop {
             Continue
         }
 
-        ; 2. 根据长度读取 JSON 消息字符串
         json_message := stdin.Read(length)
 
-        ; 3. 解析 JSON (AHK v2 没有内置 JSON，但可以简单地手动解析或使用库)
-        ; 对于我们这个简单的例子，我们可以假设格式是 {"text":"some value"}
-        ; 一个简单的解析方法：
-        pattern := '"text"\s*:\s*"(.*?)"'
-        if RegExMatch(json_message, pattern, &match) {
-            selectedText := match[1]
+        ; Simple JSON parsing for "text" and "scriptPath"
+        selectedText := ""
+        userScriptPath := ""
 
-            ; 4. 运行你的主 AHK 脚本，并将文本作为参数传递
-            ; !! 修改为你主脚本的绝对路径 !!
-            Run, "C:\path\to\AutoHotkey\AutoHotkey.exe" "C:\path\to\your-main-script.ahk" "`"" . selectedText . "`""
+        textPattern := '"text"\s*:\s*"(.*?)"'
+        if RegExMatch(json_message, textPattern, &textMatch) {
+            selectedText := textMatch[1]
+            ; AHK v2's RegExMatch typically decodes JSON string escape sequences like \" to " automatically.
+            ; If issues arise with other sequences like \\n, further processing might be needed,
+            ; but for typical text selection, this should be okay.
+        }
 
-            ; 5. (可选) 发送一个响应给 Chrome 扩展
-            response := '{"status":"success"}'
+        scriptPathPattern := '"scriptPath"\s*:\s*"(.*?)"'
+        if RegExMatch(json_message, scriptPathPattern, &scriptMatch) {
+            userScriptPath := scriptMatch[1]
+            ; Paths in JSON from JavaScript (via chrome.storage.sync and postMessage)
+            ; are typically sent with escaped backslashes (e.g., "C:\\folder\\script.ahk").
+            ; AHK v2's RegExMatch should capture this as "C:\\folder\\script.ahk".
+            ; StrReplace is used to convert "C:\\folder\\script.ahk" to "C:\folder\script.ahk".
+            userScriptPath := StrReplace(userScriptPath, "\\\\", "\")
+        }
+
+        if (userScriptPath = "") {
+            ; Fallback: Assume "your-main-script.ahk" is in the same directory as this runner script.
+            ; A_ScriptDir is the directory of the current script.
+            userScriptPath := A_ScriptDir . "\your-main-script.ahk"
+            ; Log this fallback for easier debugging by the user if necessary
+            ; FileAppend, "LOG: userScriptPath was empty, defaulted to: " . userScriptPath . "`n", "*" ; (Sends to stdout for debugging in some contexts)
+        }
+
+        ; --- USER CONFIGURATION REQUIRED ---
+        ; The user MUST set this path to their AutoHotkey.exe installation.
+        ; Examples:
+        ; ahkExePath := "C:\Program Files\AutoHotkey\AutoHotkey.exe"
+        ; ahkExePath := "C:\Program Files\AutoHotkey\v2\AutoHotkey.exe"
+        ; ahkExePath := A_AhkPath ; This might work if the script is run by an AHK version that sets it correctly.
+        ahkExePath := "C:\Program Files\AutoHotkey\AutoHotkey.exe" ; !!! MODIFY THIS LINE !!!
+        ; --- END USER CONFIGURATION ---
+
+
+        if (selectedText != "" and userScriptPath != "") {
+            ; Ensure userScriptPath and selectedText are quoted for the Run command
+            Run, '"' . ahkExePath . '" "' . userScriptPath . '" "' . selectedText . '"'
+
+            response := '{"status":"success", "executedScript":"' . userScriptPath . '", "textSent":"' . selectedText . '"}'
             response_len := StrLen(response)
 
-            ; 同样按照 4-byte length + message 的格式写回 stdout
+            stdout.WriteChar(response_len & 0xFF)
+            stdout.WriteChar((response_len >> 8) & 0xFF)
+            stdout.WriteChar((response_len >> 16) & 0xFF)
+            stdout.WriteChar((response_len >> 24) & 0xFF)
+            stdout.Write(response)
+            stdout.Flush()
+        } else {
+            errorMessage := "Missing text or scriptPath."
+            if (selectedText = "") {
+                errorMessage := "Missing text in message."
+            } else if (userScriptPath = "") {
+                ; This case should be handled by the fallback, but as a safeguard:
+                errorMessage := "Script path is effectively empty even after fallback."
+            }
+            response := '{"status":"error", "message":"' . errorMessage . '"}'
+            response_len := StrLen(response)
+
             stdout.WriteChar(response_len & 0xFF)
             stdout.WriteChar((response_len >> 8) & 0xFF)
             stdout.WriteChar((response_len >> 16) & 0xFF)
@@ -46,10 +92,22 @@ Loop {
             stdout.Write(response)
             stdout.Flush()
         }
+
     } catch as e {
-        ; 如果发生错误或 stdin 关闭，退出循环
-        break
+        ; Attempt to send an error message back to Chrome if possible
+        try {
+            errorResponse := '{"status":"error", "message":"AHK runner script error: ' . e.Message . '"}'
+            errorResponse_len := StrLen(errorResponse)
+            stdout.WriteChar(errorResponse_len & 0xFF)
+            stdout.WriteChar((errorResponse_len >> 8) & 0xFF)
+            stdout.WriteChar((errorResponse_len >> 16) & 0xFF)
+            stdout.WriteChar((errorResponse_len >> 24) & 0xFF)
+            stdout.Write(errorResponse)
+            stdout.Flush()
+        } catch {
+            ; If sending error fails, nothing more can be done here.
+        }
+        break ; Exit loop on error
     }
 }
-
 ExitApp
